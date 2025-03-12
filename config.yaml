@@ -1,9 +1,3 @@
-nacos:
-  server_address: 172.16.10.60
-  port: 8848
-  username: nacos
-  passwd: nacos
-  
 app:
   profiles:
     active: dev
