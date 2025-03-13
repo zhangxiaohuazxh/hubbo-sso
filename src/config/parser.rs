@@ -1,16 +1,26 @@
 use clap::Parser;
 use serde::Deserialize;
-use std::fs::File;
+use std::{fs::File, io};
 
-#[derive(Debug, Deserialize)]
-pub struct NacosConfig {
-    #[serde(default)]
+#[derive(Debug, Default, Deserialize)]
+pub struct AppConfig {
+    pub app: AppConfigurationProperties,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct AppConfigurationProperties {
+    // #[serde[default="default_data_id"]]
+    pub name: String,
+    // #[serde(default = "default_app_running_mode")]
+    pub mode: String,
     pub nacos: NacosProperties,
 }
 
 #[allow(unused)]
 #[derive(Debug, Deserialize, Parser)]
 pub struct NacosProperties {
+    #[serde[default="default_nacos_enabled_status"]]
+    pub enabled: bool,
     #[serde(default = "default_server_address")]
     pub server_address: String,
     #[serde(default = "default_server_port")]
@@ -51,14 +61,6 @@ fn default_data_id() -> String {
     String::from("hubbo-sso")
 }
 
-impl Default for NacosConfig {
-    fn default() -> Self {
-        NacosConfig {
-            nacos: NacosProperties::default(),
-        }
-    }
-}
-
 impl Default for NacosProperties {
     fn default() -> Self {
         NacosProperties {
@@ -69,15 +71,30 @@ impl Default for NacosProperties {
             data_id: default_data_id(),
             group_id: default_group_id(),
             namespace: "".to_string(),
+            enabled: true,
         }
     }
 }
 
-/// 解析配置文件中指定的 app name作为配置的data id并区分dev prod环境
-fn parse_app_name() -> String {
-    todo!()
+fn default_app_running_mode() -> String {
+    "dev".to_string()
 }
 
-pub async fn get_nacos_configuration() -> Result<NacosConfig, Box<dyn std::error::Error>> {
-    Ok(serde_yaml::from_reader(File::open("./config.yaml")?)?)
+fn default_nacos_enabled_status() -> bool {
+    true
+}
+
+/// 解析配置文件中指定的 app name作为配置的data id并区分dev prod环境
+fn parse_app_name(app_config_string: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let config = serde_yaml::from_str::<AppConfig>(app_config_string)?;
+    Ok(format!("{}-{}", config.app.name, config.app.mode))
+}
+
+pub async fn get_nacos_configuration() -> Result<AppConfig, Box<dyn std::error::Error>> {
+    let content = io::read_to_string(File::open("./config.yaml")?)?;
+    println!("content {}", content);
+    let config_file_name = parse_app_name(&content)?;
+    let mut app_config = serde_yaml::from_str::<AppConfig>(&content)?;
+    app_config.app.name = config_file_name;
+    Ok(app_config)
 }

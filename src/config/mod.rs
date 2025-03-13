@@ -1,5 +1,5 @@
 mod parser;
-use crate::config::parser::{get_nacos_configuration, NacosConfig};
+use crate::config::parser::{get_nacos_configuration, AppConfig};
 use nacos_sdk::api::config::ConfigService;
 use nacos_sdk::api::config::ConfigServiceBuilder;
 use nacos_sdk::api::props::ClientProps;
@@ -14,10 +14,10 @@ pub async fn init_configuration() -> Result<(), Box<dyn std::error::Error>> {
 
 #[allow(unused)]
 async fn get_configuration_from_remote_server(
-    nacos_config: NacosConfig,
+    app_config: AppConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let server_properties = nacos_config.nacos;
-    let data_id = server_properties.data_id;
+    let server_properties = app_config.app.nacos;
+    let data_id = app_config.app.name;
     let config_server = ConfigServiceBuilder::new(
         ClientProps::new()
             .server_addr(server_properties.server_address)
