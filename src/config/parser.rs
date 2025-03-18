@@ -1,6 +1,9 @@
 use clap::Parser;
 use serde::Deserialize;
-use std::{fs::File, io};
+use std::{
+    fs::File,
+    io::{self, ErrorKind::*},
+};
 
 #[derive(Debug, Default, Deserialize)]
 pub struct AppConfig {
@@ -9,9 +12,9 @@ pub struct AppConfig {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct AppConfigurationProperties {
-    // #[serde[default="default_data_id"]]
+    #[serde[default="default_data_id"]]
     pub name: String,
-    // #[serde(default = "default_app_running_mode")]
+    #[serde(default = "default_app_running_mode")]
     pub mode: String,
     pub nacos: NacosProperties,
 }
@@ -61,6 +64,14 @@ fn default_data_id() -> String {
     String::from("hubbo-sso")
 }
 
+fn default_app_running_mode() -> String {
+    "dev".to_string()
+}
+
+fn default_nacos_enabled_status() -> bool {
+    true
+}
+
 impl Default for NacosProperties {
     fn default() -> Self {
         NacosProperties {
@@ -76,25 +87,27 @@ impl Default for NacosProperties {
     }
 }
 
-fn default_app_running_mode() -> String {
-    "dev".to_string()
-}
-
-fn default_nacos_enabled_status() -> bool {
-    true
-}
-
 /// 解析配置文件中指定的 app name作为配置的data id并区分dev prod环境
 fn parse_app_name(app_config_string: &str) -> Result<String, Box<dyn std::error::Error>> {
     let config = serde_yaml::from_str::<AppConfig>(app_config_string)?;
     Ok(format!("{}-{}", config.app.name, config.app.mode))
 }
 
-pub async fn get_nacos_configuration() -> Result<AppConfig, Box<dyn std::error::Error>> {
-    let content = io::read_to_string(File::open("./config.yaml")?)?;
-    println!("content {}", content);
-    let config_file_name = parse_app_name(&content)?;
-    let mut app_config = serde_yaml::from_str::<AppConfig>(&content)?;
-    app_config.app.name = config_file_name;
-    Ok(app_config)
+pub async fn parse_local_configuration_file() -> Result<AppConfig, Box<dyn std::error::Error>> {
+    match File::open("./config.yaml") {
+        Ok(file) => {
+            if let Ok(content) = io::read_to_string(file) {
+                println!("content {}", content);
+                let config_file_name = parse_app_name(&content)?;
+                let mut app_config = serde_yaml::from_str::<AppConfig>(&content)?;
+                app_config.app.name = config_file_name;
+                return Ok(app_config);
+            }
+        }
+        Err(e) => match e.kind() {
+            NotFound => panic!("缺少项目运行依赖的配置文件"),
+            _ => panic!("配置文件解析失败 {}", e),
+        },
+    }
+    panic!("配置文件解析失败")
 }

@@ -1,0 +1,1 @@
+fn scoped_config() {}
