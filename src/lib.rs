@@ -8,7 +8,9 @@ pub mod config;
 pub mod route;
 
 /// web服务
-pub mod web;
+pub mod server;
+
+pub mod model;
 
 /// 工具类库
 pub mod utils;
