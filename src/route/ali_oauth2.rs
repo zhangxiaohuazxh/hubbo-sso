@@ -1,9 +1,12 @@
 use crate::model::request::AliCallbackRequestParam;
+use crate::utils::cipher;
 use actix_web::web::{self, ServiceConfig};
-use actix_web::{get, HttpResponse, Responder};
-use chrono::Utc;
+use actix_web::{HttpResponse, Responder, get};
+use chrono::Local;
+use reqwest::Client;
+use url::Url;
 
-const REDIRECT_URL: &str = "https://openauth.alipay.com/oauth2/publicAppAuthorize.htm?app_id=${app_id}&scope=auth_user&redirect_uri=http://hubbo.${domain}/ali/callback";
+const REDIRECT_URL: &str = "https://openauth.alipay.com/oauth2/publicAppAuthorize.htm?app_id=xxx&scope=auth_user&redirect_uri=http://hubbo.iepose.cn/ali/callback";
 
 const GATEWAY_URL: &str = "https://openapi.alipay.com/gateway.do";
 
@@ -17,30 +20,32 @@ async fn ali_oauth_login() -> HttpResponse {
 #[get("/callback")]
 async fn ali_callback(param: web::Query<AliCallbackRequestParam>) -> impl Responder {
     println!("接收到的参数 {:#?}", param);
-    let timestamp = Utc::now().timestamp_millis();
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let args = format!("{}", 1);
-    let params = [
-        ("charset", "UTF-8"),
-        ("method", "alipay.system.oauth.token"),
-        ("format", "json"),
-        ("sign", "${sign}"),
-        ("app_id", "${app_id}"),
-        ("version", "1.0"),
-        ("sign_type", "RSA2"),
-        ("timestamp", &timestamp.to_string()),
-        ("refresh_token", &param.auth_code),
-        ("code", &param.auth_code),
-        ("grant_type", "authorization_code"),
-    ];
-    // let res: String = Client::new()
-    //     .get(GATEWAY_URL)
-    //     .form(&params)
-    //     .send()
-    //     .await
-    //     .unwrap()
-    //     .json()
-    //     .await
-    //     .unwrap();
+    let app_id = "xx";
+    let signedContent = format!(
+        "app_id={}&charset=UTF-8&code={}&format=json&grant_type=authorization_code&method=alipay.system.oauth.token&sign_type=RSA2&timestamp={}&version=1.0",
+        app_id, &param.auth_code, timestamp
+    );
+    let sign = cipher::sign(signedContent.as_bytes()).await.unwrap();
+    println!("signed content {}", signedContent);
+    println!(" ");
+    println!("sign {}", sign);
+    println!(" ");
+    let url = Url::parse(&format!("{}?{}&sign={}", GATEWAY_URL, signedContent, sign))
+        .unwrap()
+        .to_string();
+    println!("url {:#?}", url);
+    println!(" ");
+    let res = Client::new()
+        .get(url)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    println!("res {:#?}", res);
     "ok"
 }
 
@@ -54,7 +59,6 @@ pub fn configure(config: &mut ServiceConfig) {
 
 #[cfg(test)]
 mod test {
-
     #[actix_rt::test]
     async fn test_timestamp() {
         let time = chrono::Utc::now();
