@@ -1,32 +1,26 @@
 use anyhow::{Context, Result};
 use base64::prelude::*;
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
-use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
-use rsa::signature::{RandomizedSigner, SignatureEncoding, SignerMut, Verifier};
+use cbc::cipher::{BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
 use rsa::{
-    Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
+    Pkcs1v15Encrypt, Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey,
     pkcs8::{DecodePrivateKey, DecodePublicKey},
 };
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 type Aes192CbcEnc = cbc::Encryptor<aes::Aes192>;
+#[allow(unused)]
 type Aes192CbcDec = cbc::Decryptor<aes::Aes192>;
 
 /// ## 不要尝试使用下面的rsa密钥,因为我已经删除了中间的部分数据
 const PRIVATE_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCU5eroItCu2xibuPtB
-4Rc1Cs4zzyeZuNXJAHK1n9gJBLMP2AIFZkVi6e6nwQKBgQC157O/k+JUp2lxuAYg
-qrtYw99dUJuSlDcF8Shr620ygndRUP0PYRPkpwlb2S0YkDf+HUYG3VKIVrl9OZFz
-j8Lisp6uwGCqDusOLd62QekjTuMdsm5EzsenuqJ+p0RSsnBuOIRIYeL7q+RBHptB
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCU5eroItCu2xib
 D3OyMByjRql/0GjvXjFDespjKA==
 -----END PRIVATE KEY-----
 "#;
 
-const PUBLIC_KEY: &str = r#"-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmhw4X8nXkUAN920BjwdX
-ywIDAQAB
------END PUBLIC KEY-----
-"#;
+const PUBLIC_KEY: &str = "";
+
+const ALI_PUBLIC_KEY: &str = r#"M+PzqS3KdKCCphazkYe6+Ao7AgkDcf76SFeFJZIcF/CFkvNnLEsLKCYmLUn8lKi9yevMLRErP30z9DP5BfZFMQIDAQAB"#;
 
 /// ## 使用公钥对源数据进行加密
 /// ### @param 源数据
@@ -57,9 +51,8 @@ pub async fn decrypt(encoding_data: String) -> Result<Vec<u8>> {
 #[inline]
 pub async fn sign(data: &[u8]) -> Result<String> {
     let private_key = RsaPrivateKey::from_pkcs8_pem(PRIVATE_KEY)?;
-    let sign_key: SigningKey<Sha256> = SigningKey::new_unprefixed(private_key);
-    let mut rng = rand::thread_rng();
-    Ok(BASE64_STANDARD.encode(sign_key.sign_with_rng(&mut rng, data).to_vec()))
+    Ok(BASE64_STANDARD
+        .encode(private_key.sign(rsa::Pkcs1v15Sign::new::<Sha256>(), &Sha256::digest(data))?))
 }
 
 /// ## 使用公钥进行rsa验签
@@ -67,11 +60,13 @@ pub async fn sign(data: &[u8]) -> Result<String> {
 /// ### @param sign 签名
 /// ### panic 验签失败
 #[inline]
-pub async fn verify(data: &[u8], sign: &[u8]) -> Result<()> {
-    let public_key = RsaPublicKey::from_public_key_pem(PUBLIC_KEY)?;
-    let verifying_key = VerifyingKey::<Sha256>::new_unprefixed(public_key);
-    let signature: Signature = Signature::try_from(sign)?;
-    verifying_key.verify(data, &signature)?;
+pub async fn verify(data: &[u8], sign: &str) -> Result<()> {
+    let public_key = RsaPublicKey::from_public_key_der(&BASE64_STANDARD.decode(ALI_PUBLIC_KEY)?)?;
+    public_key.verify(
+        Pkcs1v15Sign::new::<Sha256>(),
+        &Sha256::digest(data),
+        &BASE64_STANDARD.decode(sign)?,
+    )?;
     Ok(())
 }
 
@@ -80,7 +75,7 @@ pub async fn aes_decrypt(data: &mut [u8]) -> Result<String> {
     let key = b"==";
     let iv = [0x24; 16];
     let cipher = Aes192CbcEnc::new_from_slices(key, &iv)?;
-    let res = cipher
+    let _ = cipher
         .encrypt_padded_mut::<Pkcs7>(data, data.len())
         .unwrap();
     Ok("abc".to_string())
@@ -115,12 +110,11 @@ mod test {
     #[actix_rt::test]
     async fn test_verify_sign() -> Result<()> {
         verify(
-            b"abc",
-            &BASE64_STANDARD.decode(crate::utils::cipher::sign(b"abc").await?)?,
+            br#"access_token=&auth_start=2025-03-23 18:59:42&expires_in=1296000&re_expires_in=2592000&refresh_token=&open_id="#,
+            r#"VnnSCXT5XivGj+0++FPr2eZaXgfyM12HaOuk9tYc//XfDT0FjdYZNBFUWrhK29NglXrMT1/gVY3N28psDYzACmMnR1fx759HkYhcB4ENJ//lDnrJpcxW3b5jO6skTniR+ys++K61vBAhDcfABLNRJ+wV5zUsWrp9gVPrm8G1G/ofUxCD2Kj/NDOQCIw=="#
         )
         .await?;
         println!("第一轮验签通过");
-        verify(b"abc", sign(b"abc").await?.as_bytes()).await?;
         Ok(())
     }
 
