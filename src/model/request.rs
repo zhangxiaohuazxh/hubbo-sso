@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct User {
     pub username: String,
     #[serde(default)]
@@ -9,8 +9,9 @@ pub struct User {
 
 pub mod ali_pay {
     use super::*;
+    use serde::Serialize;
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize)]
     pub struct AliCallbackRequestParam {
         /* 授权码 */
         pub auth_code: String,
@@ -19,12 +20,13 @@ pub mod ali_pay {
         pub scope: String,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[allow(unused)]
+    #[derive(Debug, Serialize, Deserialize)]
     pub struct AliPayOauthResponse {
         alipay_system_oauth_token_response: AlipaySystemOauthTokenResponse,
         sign: String,
     }
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize)]
     pub struct AlipaySystemOauthTokenResponse {
         pub access_token: String,
         pub auth_start: String,

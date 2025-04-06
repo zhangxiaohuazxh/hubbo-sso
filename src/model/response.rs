@@ -1,17 +1,18 @@
 use crate::constants::web::{ERROR_CODE, ERROR_MSG, SUCCESS_CODE, SUCCESS_MSG};
+use actix_web::{HttpRequest, HttpResponse, Responder};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub struct ResponseWrapper<'a, T: Serialize> {
+pub struct ResponseWrapper<T: Serialize> {
     /// 状态码,200 成功 500 失败,其余见系统错误代码
     pub code: u16,
     /// 状态消息,可能包含错误原因
-    pub msg: &'a str,
+    pub msg: &'static str,
     /// 响应数据载荷,可选地
     pub data: Option<T>,
 }
 
-impl<T> ResponseWrapper<'_, T>
+impl<T> ResponseWrapper<T>
 where
     T: Serialize,
 {
@@ -82,5 +83,15 @@ where
             msg: ERROR_MSG,
             data: Some(data),
         }
+    }
+}
+
+impl<T: Serialize> Responder for ResponseWrapper<T> {
+    type Body = actix_web::body::BoxBody;
+
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok()
+            .content_type("application/json")
+            .body(serde_json::to_vec(&self).unwrap())
     }
 }
