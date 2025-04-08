@@ -57,7 +57,6 @@ async fn ali_callback(param: web::Query<AliCallbackRequestParam>) -> ResponseWra
     let resp = Client::new()
         .post(url)
         .body(body_string)
-        .header("Accept", "text/plain,text/xml,text/javascript,text/html")
         .header(
             "Content-Type",
             "application/x-www-form-urlencoded;charset=UTF-8",
