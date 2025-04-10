@@ -1,11 +1,13 @@
 use crate::model::request::ali_pay::{AliCallbackRequestParam, AliPayOauthResponse};
 use crate::model::response::ResponseWrapper;
+use crate::utils::request;
+use crate::utils::request::MediaType;
 use crate::utils::{
-	cipher,
-	web::{QueryParam, QueryStringBuilder},
+    cipher,
+    web::{QueryParam, QueryStringBuilder},
 };
 use actix_web::web::{self, ServiceConfig};
-use actix_web::{get, HttpResponse};
+use actix_web::{HttpResponse, get};
 use chrono::Local;
 use reqwest::Client;
 use std::collections::BTreeMap;
@@ -54,25 +56,11 @@ async fn ali_callback(param: web::Query<AliCallbackRequestParam>) -> ResponseWra
         .url_encode_query_string_with_base_url(GATEWAY_URL)
         .unwrap();
     let body_string = format!("grant_type=authorization_code&code={}", param.auth_code);
-    let resp = Client::new()
-        .post(url)
-        .body(body_string)
-        .header(
-            "Content-Type",
-            "application/x-www-form-urlencoded;charset=UTF-8",
-        )
-        .send()
+    let res = request::do_post(&url, MediaType::FormUrlEncoded, Some(body_string), None)
         .await
         .unwrap();
-    let headers = resp.headers();
-    println!("headers {:#?}", headers);
-    let trace_id = headers.get("trace_id").unwrap();
-    println!("trace id  {:?}", trace_id);
-    let res: AliPayOauthResponse = resp.json().await.unwrap();
+    let res: AliPayOauthResponse = serde_json::from_str(&res).unwrap();
     println!("res {:#?}", res);
-    // todo 验签
-    // todo access-token refresh-token入库
-    // todo 获取用户信息
     ResponseWrapper::success()
 }
 
@@ -80,10 +68,7 @@ async fn ali_callback(param: web::Query<AliCallbackRequestParam>) -> ResponseWra
 async fn get_user_info_from_ali_pay() -> anyhow::Result<()> {
     let mut query_string_builder = QueryStringBuilder::new_with_initial_data(ali_pay_common_args());
     query_string_builder.append_query_param(("method", QueryParam::Str("alipay.user.info.share")));
-    query_string_builder.append_query_param((
-        "auth_token",
-        QueryParam::Str(""),
-    ));
+    query_string_builder.append_query_param(("auth_token", QueryParam::Str("")));
     let sign = cipher::sign(query_string_builder.query_string()?.as_bytes()).await?;
     query_string_builder.append_query_param(("sign", QueryParam::String(sign)));
     let url = query_string_builder.url_encode_query_string_with_base_url(GATEWAY_URL)?;
@@ -102,11 +87,11 @@ pub fn configure(config: &mut ServiceConfig) {
 
 #[cfg(test)]
 mod test {
-	use super::*;
-	use crate::model::request::ali_pay::AlipaySystemOauthTokenResponse;
-	use std::str::FromStr;
+    use super::*;
+    use crate::model::request::ali_pay::AlipaySystemOauthTokenResponse;
+    use std::str::FromStr;
 
-	#[actix_rt::test]
+    #[actix_rt::test]
     async fn test_timestamp() {
         let time = chrono::Utc::now();
         let time = time.timestamp_millis();

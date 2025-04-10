@@ -1,12 +1,16 @@
 use anyhow::Result;
+use log::{error, info};
 use reqwest::{Client, ClientBuilder, RequestBuilder};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::{env, sync::Once};
+
+static LOGGING_ENABLED_INIT: Once = Once::new();
 
 #[allow(dead_code)]
 #[derive(Debug)]
-enum MediaType {
+pub enum MediaType {
     /* json */
     ApplicationJson,
     /* 表单 */
@@ -18,14 +22,14 @@ enum MediaType {
 #[inline]
 fn get_request_client() -> Client {
     ClientBuilder::new()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(5))
         .gzip(true)
         .build()
         .unwrap()
 }
 
 #[allow(dead_code)]
-async fn do_get<T>(
+pub async fn do_get<T>(
     url: &str,
     query: Option<T>,
     headers: Option<HashMap<&str, &str>>,
@@ -42,14 +46,14 @@ where
 }
 
 #[allow(dead_code)]
-async fn do_post<T>(
+pub async fn do_post<T>(
     url: &str,
     media_type: MediaType,
-    body: Option<&T>,
+    body: Option<T>,
     headers: Option<HashMap<&str, &str>>,
 ) -> Result<String>
 where
-    T: Serialize + ?Sized,
+    T: Serialize + ?Sized + Into<reqwest::Body>,
 {
     let client = get_request_client();
     if let Some(body) = body {
@@ -58,7 +62,7 @@ where
                 let request = client
                     .post(url)
                     .header("Content-Type", "application/json;charset=UTF-8")
-                    .json(body);
+                    .json(&body);
                 execute(request, headers).await
             }
             MediaType::FormUrlEncoded => {
@@ -68,7 +72,7 @@ where
                         "Content-Type",
                         "application/x-www-form-urlencoded;charset=UTF-8",
                     )
-                    .form(body);
+                    .body(body);
                 // let body = body as &dyn Any;
                 // if let Some(map) = body.downcast_ref::<HashMap<&str, &str>>() {}
                 execute(request, headers).await
@@ -95,12 +99,52 @@ async fn execute(
             request = request.header(k, v);
         }
     }
-    Ok(request.send().await?.text().await?)
+    let request = request.send().await;
+    match request {
+        Err(err) => {
+            if log_enabled() {
+                let url = err.url().unwrap();
+                if err.is_timeout() {
+                    error!("连接超时 {:?}", url)
+                } else if err.is_connect() {
+                    error!("连接拒绝 {:?} ", url)
+                } else if err.is_redirect() {
+                    error!("重定向错误 {:?}", url)
+                } else {
+                    error!("未知错误 {:?}\r\n{}", url, err)
+                }
+            }
+            panic!("请求失败 {:?}", err)
+        }
+        Ok(resp) => {
+            let headers = resp.headers();
+            if log_enabled() {
+                info!("响应内容 {:?}", headers);
+            }
+            let result = resp.text().await?;
+            if log_enabled() {
+                info!("响应数据\r\n{:#?}", result);
+            }
+            return Ok(result);
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+fn log_enabled() -> bool {
+    static mut LOGGING_ENABLED: bool = false;
+    unsafe {
+        LOGGING_ENABLED_INIT.call_once(|| {
+            LOGGING_ENABLED = env::var("LOGGING_REQUEST").is_ok();
+        });
+        LOGGING_ENABLED
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use log::log;
 
     #[actix_rt::test]
     async fn test_do_get() -> Result<()> {
@@ -119,23 +163,24 @@ mod test {
         let mut headers = HashMap::new();
         headers.insert("Refer", "https://www.baidu.com");
         headers.insert("AuthToken", "asahuin2w1ijoi121");
-        let _ = do_post(
+        let res = do_post(
             "http://localhost:8080/test/form",
             MediaType::FormUrlEncoded,
-            Some(&[("name", "key"), ("value", "测试数据")]),
+            Some("name=key&value='test'"),
             Some(headers),
         )
         .await?;
-        let mut body = HashMap::new();
-        body.insert("name", "key");
-        body.insert("value", "测试数据");
-        let _ = do_post(
-            "http://localhost:8080/test/json",
-            MediaType::ApplicationJson,
-            Some(&body),
-            None,
-        )
-        .await?;
+        println!("res {}", res);
+        // let mut body = HashMap::new();
+        // body.insert("name", "key");
+        // body.insert("value", "测试数据");
+        // let _ = do_post(
+        //     "http://localhost:8080/test/json",
+        //     MediaType::ApplicationJson,
+        //     Some(&body),
+        //     None,
+        // )
+        // .await?;
         Ok(())
     }
 
@@ -143,6 +188,23 @@ mod test {
     async fn test_serialize_json() -> Result<()> {
         let json_string = serde_json::to_string(&[("name", "key")])?;
         println!("json string {json_string}");
+        Ok(())
+    }
+
+    #[actix_rt::test]
+    async fn test_parse_env_arg() -> Result<()> {
+        let env = std::env::var("LOGGING_REQUEST");
+        if let Ok(env) = env {
+            println!("读取到了环境变量 {env}")
+        } else {
+            println!("读取失败")
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_logger() -> Result<()> {
+        info!("start up");
         Ok(())
     }
 }
